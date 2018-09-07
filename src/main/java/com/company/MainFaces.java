@@ -10,6 +10,7 @@ import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.preprocessor.DataNormalization;
 import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.factory.Nd4j;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,10 +20,13 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class MainFaces {
+
+    public static final Logger log = Logger.getAnonymousLogger();
 
     static final String LAYER_NAME = "avg_pool";
 
@@ -36,7 +40,9 @@ public class MainFaces {
 
         ZooModel zooModel = ResNet50.builder().numClasses(100).build();
         zooModel.initPretrained(PretrainedType.IMAGENET);
-        ComputationGraph graph = (ComputationGraph) zooModel.initPretrained();
+        ComputationGraph pretrainedNet = (ComputationGraph) zooModel.initPretrained();
+
+        log.info(pretrainedNet.summary());
 
         for (String facesPath : getFilePathes(faceFolder, 10)) {
 
@@ -52,8 +58,8 @@ public class MainFaces {
             scaler.transform(indArray);
 
             // todo normalize
-            
-            Map<String, INDArray> layersOutputs = graph.feedForward(indArray, false);
+
+            Map<String, INDArray> layersOutputs = pretrainedNet.feedForward(indArray, false);
 
             INDArray outLayer = layersOutputs.get(LAYER_NAME);
 
