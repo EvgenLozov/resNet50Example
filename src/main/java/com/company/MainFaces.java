@@ -12,14 +12,14 @@ import org.nd4j.linalg.dataset.api.preprocessor.ImagePreProcessingScaler;
 import org.nd4j.linalg.factory.Nd4j;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -30,13 +30,11 @@ public class MainFaces {
 
     static final String LAYER_NAME = "avg_pool";
 
-    static NativeImageLoader imageLoader = new NativeImageLoader(224  , 224, 3);
-
-    static List<INDArray> vectors = new ArrayList<>();
-
     public static void main(String[] args) throws IOException {
+        int limit = 8000;
 
-        String faceFolder = "/home/yevhen/Downloads/face_detection_data";
+
+        String faceFolder = "d:\\projects\\souteneur\\images";
 
         ZooModel zooModel = ResNet50.builder().numClasses(100).build();
         zooModel.initPretrained(PretrainedType.IMAGENET);
@@ -44,26 +42,50 @@ public class MainFaces {
 
         log.info(pretrainedNet.summary());
 
-        for (String facesPath : getFilePathes(faceFolder, 10)) {
+        Function<String,INDArray> imageLoader = new NormalizedImageMatrixLoaderProvider().byFile();
+
+        List<String> images = getFilePathes(faceFolder, limit);
+        INDArray vectors = Nd4j.zeros(2048, limit);
+        int index = 0;
+        for (String facesPath : images) {
 
             //All pre-trained models expect input images normalized in the same way, i.e. mini-batches of 3-channel RGB images of shape (3 x H x W),
             // where H and W are expected to be atleast 224.
 
-            INDArray indArray =  imageLoader.asMatrix(new File(facesPath));
+            INDArray indArray =  imageLoader.apply(facesPath);
 
             //The images have to be loaded in to a range of [0, 1]
             // and then normalized using mean=[0.485, 0.456, 0.406] and std=[0.229, 0.224, 0.225]
 
-            DataNormalization scaler = new ImagePreProcessingScaler(0, 1);
-            scaler.transform(indArray);
-
-            // todo normalize
 
             Map<String, INDArray> layersOutputs = pretrainedNet.feedForward(indArray, false);
 
-            INDArray outLayer = layersOutputs.get(LAYER_NAME);
+            INDArray outLayer = layersOutputs.get(LAYER_NAME).getRow(0).getColumn(0).getColumn(0);
 
-            vectors.add(outLayer);
+            outLayer = outLayer.mul(1.0/outLayer.norm2(0).getDouble(0));
+
+
+            vectors.putColumn(index++, outLayer);
+        }
+
+        SimilarImageService similarImageService = new SimilarImageService(vectors, images );
+
+        similarImageService.find(0, 10);
+
+    }
+
+    private static void copyFilesToResultFolder(List<String> files) throws IOException {
+        String folder = "result";
+
+        deleteDirectoryRecursionJava6(new File(folder));
+
+        new File(folder).mkdir();
+
+        for (String file : files) {
+            File source = new File(file);
+            File destination = new File(folder+"/"+source.getName());
+            copyFileUsingStream(source, destination);
+
         }
     }
 
@@ -73,6 +95,34 @@ public class MainFaces {
                         .map(p -> p.toFile().getAbsolutePath())
                         .limit(limit)
                         .collect(Collectors.toList());
+        }
+    }
+
+    private static void copyFileUsingStream(File source, File dest) throws IOException {
+        InputStream is = null;
+        OutputStream os = null;
+        try {
+            is = new FileInputStream(source);
+            os = new FileOutputStream(dest);
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = is.read(buffer)) > 0) {
+                os.write(buffer, 0, length);
+            }
+        } finally {
+            is.close();
+            os.close();
+        }
+    }
+
+    private static void deleteDirectoryRecursionJava6(File file) throws IOException {
+        if (file.isDirectory()) {
+            File[] entries = file.listFiles();
+            if (entries != null) {
+                for (File entry : entries) {
+                    deleteDirectoryRecursionJava6(entry);
+                }
+            }
         }
     }
 }
